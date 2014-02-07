@@ -7,9 +7,8 @@ let dropSomeWithProb p =
 
 
 type GamePhase = 
-  | NotRegistered
-  | WaitingForPlayer
   | GameFinished
+  | WaitingForPlayer
   | WaitingForStaff
 
 type ScoreStatus = 
@@ -24,7 +23,7 @@ type State = {
   lastGameScores: int list
   } with
   static member Zero = {
-    phase = NotRegistered
+    phase = GameFinished
     playerName = null
     pinsUp = Set [1..10]
     rollRecord = []
@@ -44,7 +43,8 @@ type Event =
   | GameOver of FrameScores:int list
 
 
-let Apply state = function
+let Apply state event = 
+  match event with
   | PlayerRegistered name -> {state with playerName = name; phase = WaitingForPlayer}
   | PinsDropped dropped   -> {state with pinsUp = state.pinsUp - dropped; phase = WaitingForPlayer; rollRecord = dropped.Count::state.rollRecord}
   | FrameEnded dropped    -> {state with pinsUp = Set [1..10]; phase = WaitingForPlayer; rollRecord = dropped.Count::state.rollRecord}
@@ -59,11 +59,11 @@ let Apply state = function
 module Rules = 
   let rec scoreRolls' accumulated rolls = 
     match rolls with 
-    | []                                 -> Complete accumulated
-    | r1::r2::more when r1 + r2 < 10     -> r1 + r2 :: accumulated |> scoreRolls' more
-    | r1::b1::b2::more when r1 = 10      -> r1 + b1 + b2 :: accumulated |> scoreRolls' more
-    | r1::r2::b1::more when r1 + r2 = 10 -> r1 + r2 + b1 :: accumulated |> scoreRolls' more
-    | _                                  -> Incomplete (accumulated, rolls)
+    | r1::(b1::b2::_ as more) when r1 = 10      -> r1 + b1 + b2 :: accumulated |> scoreRolls' more
+    | r1::r2::(b1::_ as more) when r1 + r2 = 10 -> r1 + r2 + b1 :: accumulated |> scoreRolls' more
+    | r1::r2::more            when r1 + r2 < 10 -> r1 + r2 :: accumulated |> scoreRolls' more
+    | []                                        -> Complete accumulated
+    | _                                         -> Incomplete (accumulated, rolls)
 
   let scoreRolls = scoreRolls' []
 
@@ -76,32 +76,28 @@ type Command =
   | RecoverBall
 
 
-let Exec (state:State) = function
-
-  | RegisterPlayer n -> if state.phase = NotRegistered then PlayerRegistered n
+let Exec state command =
+  match command with
+  | RegisterPlayer n -> if state.phase = GameFinished then PlayerRegistered n
                         else failwith "to register, game must not be started and no player registered."
 
   | RollBall p ->       match state.phase with
-                        | NotRegistered -> BallStranded
                         | GameFinished -> BallStranded
                         | WaitingForStaff -> failwith "You've already stranded a ball.  Get Out!"
                         | WaitingForPlayer ->
                           let pinsHit = state.pinsUp |> dropSomeWithProb p
-                          let allRolls = pinsHit.Count :: state.rollRecord
-                          match Rules.scoreRolls allRolls with
-                          | Complete framelist ->
-                            if framelist.Length = 10 then GameOver framelist
-                                                     else FrameEnded pinsHit
-                          | Incomplete (frames,rolls) ->  PinsDropped pinsHit
+                          match pinsHit.Count :: state.rollRecord |> List.rev |> Rules.scoreRolls with
+                          | Incomplete (frames,rolls) -> PinsDropped pinsHit
+                          | Complete framelist -> if framelist.Length = 10
+                                                    then GameOver framelist
+                                                    else FrameEnded pinsHit
 
   | RecoverBall ->     match state.phase with
                         | WaitingForStaff -> BallRecovered
-                        | NotRegistered -> failwith "What ball???"
                         | GameFinished -> failwith "What ball????"
                         | WaitingForPlayer -> failwith "What ball???"
   
       
 open Agg
-
 let BowlingAggregate = {apply = Apply; exec=Exec; zero=State.Zero}
 
