@@ -26,11 +26,12 @@ let main argv =
 
   let newGameId = System.Guid.NewGuid()
   let commit, event, state = Bowling.Command.RegisterPlayer "joe" |> games.Exec newGameId 
+  
   printfn "%A -> %A" event state
-  let commit, event, state = Bowling.Command.RollBall 0.75 |> games.Exec newGameId 
-  printfn "%A -> %A" event state
-  let commit, event, state = Bowling.Command.RollBall 0.75 |> games.Exec newGameId 
-  printfn "%A -> %A" event state
+  for x in [1..20] do
+    let commit, event, state = Bowling.Command.RollBall 0.75 |> games.Exec newGameId 
+    
+    printfn "%A -> %A" event state
 
   System.Console.ReadKey() |> ignore
   0 // return an integer exit code
